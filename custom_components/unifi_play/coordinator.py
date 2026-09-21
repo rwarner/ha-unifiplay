@@ -74,6 +74,16 @@ def _zone_signature(gs: UnifiPlayGroupState) -> tuple[Any, ...]:
     purpose: it is firmware-owned and legitimately differs between devices
     mid-election, so including it would report a conflict every time a zone
     changed hands.
+
+    ``wb_device`` and ``wb_input`` count only while ``wb_enable`` is set. The
+    write omits all three to turn a broadcast off (#40), and the firmware
+    then leaves the other two at whatever they were and echoes them back
+    unchanged. Comparing them anyway means our own readback matches neither
+    the pending document nor any outstanding write, so reconcile reads it as
+    a Play-app edit and discards a rename that had not been confirmed yet.
+    Two speakers with different leftovers also disagree forever, which the
+    conflict warning reports and diagnostics counts. Every consumer of these
+    two already gates on ``wb_enable``, so nothing acts on them while off.
     """
     return (
         gs.name,
@@ -81,8 +91,8 @@ def _zone_signature(gs: UnifiPlayGroupState) -> tuple[Any, ...]:
         gs.group_index,
         gs.broadcasting_mode,
         gs.wb_enable,
-        _norm_mac(gs.wb_device),
-        gs.wb_input,
+        _norm_mac(gs.wb_device) if gs.wb_enable else "",
+        gs.wb_input if gs.wb_enable else "",
     )
 
 
