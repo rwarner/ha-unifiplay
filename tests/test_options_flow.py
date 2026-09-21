@@ -535,7 +535,7 @@ async def test_choosing_streaming_clears_the_broadcast(
     await settle(hass)
 
     assert result["type"] is FlowResultType.MENU
-    assert _written(amp)[0]["wb_enable"] is False
+    assert "wb_enable" not in _written(amp)[0]
 
 
 async def test_choosing_broadcast_asks_which_speaker_and_input(

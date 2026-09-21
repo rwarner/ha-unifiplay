@@ -151,6 +151,16 @@ serving stale copies that then compete on merge. Every mutation goes through
 speaker, writes to all of them or none, and returns a result. Do not publish
 `set_groups` from anywhere else.
 
+**The written `set_groups` payload matches the Play app field for field, and
+has to.** Stamp the body with epoch seconds (`0` when clearing the last zone),
+send `group_index: 1` on create, send `wb_enable`/`wb_device`/`wb_input` only
+while broadcasting, and never send `host` or a per-group `timestamp`. Each of
+those was measured against the app's own write: get any of them wrong and the
+zone still forms, the entities still look right, and the members play nothing.
+`scripts/check_set_groups_payload.py` guards it in CI. Do not tidy the payload
+because a field looks redundant - see docs/api.md, "Do not simplify the written
+payload".
+
 **Fields that only appear while true.** `hosting_group` and `sync_devices` are
 sent in `info` only while set, so a device leaving a zone simply stops sending
 them and the last value stands forever. Derive membership from zone state, never

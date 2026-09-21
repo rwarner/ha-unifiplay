@@ -45,7 +45,7 @@ Run all of it before tagging a release.
 | MQTT client calls resolve | `python scripts/check_mqtt_client_calls.py` |
 | Certificate-generation fallback | `python scripts/check_mqtt_cert_generations.py` |
 | Every `tls_set` uses the bundled pairs | `python scripts/check_cert_generation_users.py` |
-| `set_groups` carries no firmware-owned keys | `python scripts/check_set_groups_payload.py` |
+| `set_groups` payload matches the Play app | `python scripts/check_set_groups_payload.py` |
 | No expression reaches a shell script | `python scripts/check_workflow_injection.py` |
 | Quality scale tracker matches the pin | `python scripts/check_quality_scale.py` |
 | Official rule pin matches hassfest | `python scripts/check_quality_scale.py --check-upstream` |
@@ -71,6 +71,12 @@ caught it.
 So the checklist below is not a formality, and no release should go out
 without it. Record the model and firmware version alongside each result; a
 pass on `UPL-AMP` 1.0.38 says nothing about `UPL-PORT` 1.1.10.
+
+Zone results need one more precaution: **delete every zone and wait for the
+speakers to report an empty list before each trial.** They hold recent zone
+state, so a second attempt on speakers that have just been grouped succeeds
+regardless of what is written - which is how the `set_groups` payload fields
+were each "disproved" once before being confirmed on cleared hardware.
 
 ## What CI proves, and what it does not
 

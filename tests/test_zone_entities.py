@@ -284,7 +284,7 @@ async def test_selecting_streaming_clears_the_broadcast(
     await _call(
         hass, "media_player", "select_source", entity_id=ZONE_PLAYER, source="Streaming"
     )
-    assert amp.last_action("set_groups").body["groups"][0]["wb_enable"] is False
+    assert "wb_enable" not in amp.last_action("set_groups").body["groups"][0]
 
 
 async def test_selecting_a_wired_input_writes_the_zone_then_the_input(
