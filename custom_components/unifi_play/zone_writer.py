@@ -34,6 +34,7 @@ reason. Anything stronger would be a claim the protocol cannot support.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -307,11 +308,16 @@ class ZoneWriter:
         the old host is given the same list as everyone else.
         """
         groups = self._coordinator.zone_documents(group_id, document)
+        # The Play app always stamps the set_groups BODY: epoch seconds for a
+        # zone list, 0 when clearing the last zone. Without it every speaker
+        # stores the zone with timestamp -1. This is the body envelope, not the
+        # per-group timestamp retired in #22/#23, which is never echoed back.
+        body = {"timestamp": int(time.time()) if groups else 0, "groups": groups}
 
         written: list[str] = []
         failed: list[str] = []
         for mac, client in clients:
-            if client.publish_action("set_groups", {"groups": groups}):
+            if client.publish_action("set_groups", body):
                 written.append(mac)
             else:
                 # The socket went between preflight and here. Rare, and the
@@ -380,8 +386,14 @@ class ZoneWriter:
         """Create a zone with a fresh id."""
         import uuid
 
+        # The Play app creates a zone with group_index 1, never 0. Rename,
+        # reorder and membership changes go through _apply_to and keep the
+        # existing value, so only creation needs to say it.
         return self.apply(
-            group_id=str(uuid.uuid4()), name=name, member_macs=member_macs
+            group_id=str(uuid.uuid4()),
+            name=name,
+            member_macs=member_macs,
+            group_index=1,
         )
 
     def rename(self, group_id: str, name: str) -> ZoneWriteResult:

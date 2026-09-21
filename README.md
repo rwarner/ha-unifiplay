@@ -144,11 +144,13 @@ All communication stays local on your network.
 | Platform | Device | Tested against |
 |----------|--------|----------------|
 | `UPL-AMP` | PowerAmp | Firmware 1.0.38 and 1.0.41, maintainer hardware |
-| `UPL-PORT` | Audio Port | Firmware 1.1.10, community-confirmed (direct connection; see #4) |
+| `UPL-PORT` | Audio Port | Firmware 1.1.10 and 1.1.13, five speakers (direct connection; see #4) |
 
-Firmware 1.0.41 rotated the MQTT client certificate. Both generations ship with
-the integration and each speaker is probed until one is accepted, so a mixed
-house works and an update does not need any action here. The evidence behind
+Firmware 1.0.41 on the amp, and 1.1.12 on the Port, rotated the MQTT client
+certificate. Both generations ship with the integration and each speaker is
+probed until one is accepted, so a mixed house works and a new install needs no
+action. Speakers that rotate the certificate *while already set up* may need the
+integration reloaded once before they come back. The evidence behind
 that, down to certificate serial numbers, is in
 [docs/api.md](docs/api.md#the-client-certificate-is-rotated-by-firmware).
 

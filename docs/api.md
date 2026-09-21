@@ -299,12 +299,18 @@ different versions:
 | Platform | Last legacy firmware | First needing the 2026 cert | Basis |
 |---|---|---|---|
 | `UPL-AMP` | 1.0.40 | **1.0.41** | measured - amps broke on exactly 1.0.41 (#20) |
-| `UPL-PORT` | 1.1.11 | **1.1.12** | inferred - 1.1.10 observed working, 1.1.13 reported broken (#24) |
+| `UPL-PORT` | 1.1.11 | **1.1.12** | inferred - 1.1.10 observed working, 1.1.13 measured needing the 2026 cert |
 
 The Port row is an inference, not a measurement: `1.0.40` and `1.1.11` are both
 present in the app's string pool and the two constants above exist, but the
 constant-to-value binding was not read out of the bytecode. The endpoints are
 firm - a Port on 1.1.10 worked and one on 1.1.13 did not.
+
+Measured on five Ports that auto-updated to `1.1.13`: the legacy certificate
+still completes the **TLS handshake**, and is rejected afterwards, at the MQTT
+layer. The 2026 pair connects normally. So a reachability test proves nothing
+here - port 8883 accepts the connection either way, and only a full MQTT
+session tells the generations apart.
 
 **Anything that opens an MQTT session must offer both generations**, not just
 the control client. Discovery having its own hardcoded pair meant a Port on
@@ -800,16 +806,20 @@ a device's MQTT broker (which echoes other clients' publishes on
   "broadcasting_mode": "zone_only"}]}
 ```
 
-Four differences from what this integration used to send. Only the first two
-are acted on - the other two are recorded because they are what the app does,
-not because either is known to matter:
+Four differences from what this integration used to send. All four are now
+matched - the last three were left alone at first, and members stayed silent
+until they were matched too:
 
-| Field | App | This integration | Acted on? |
-|-------|-----|------------------|-----------|
-| `dev_info[].host` | absent | omitted | **yes** - writing it breaks member audio |
-| per-group `timestamp` | absent | omitted | **yes** - never echoed back, so write-only noise |
-| `wb_enable` / `wb_device` / `wb_input` | absent | still sent | no - "off" is an active command here, and whether an absent `wb_enable` means "off" or "leave unchanged" is unverified |
-| `group_index` | `1` | still defaults `0` | no - one sample, and it is a display-order field the user can set to `0` anyway |
+| Field | App | This integration | Why |
+|-------|-----|------------------|-----|
+| `dev_info[].host` | absent | omitted | writing it breaks member audio; the device elects |
+| per-group `timestamp` | absent | omitted | never echoed back, so write-only noise |
+| body `timestamp` | epoch seconds | sent, `0` when clearing | without it the speakers store the zone as `timestamp: -1` |
+| `group_index` | `1` | `1` on create | edits keep whatever the zone already has |
+| `wb_enable` / `wb_device` / `wb_input` | absent while streaming | sent only while broadcasting | an absent `wb_enable` reads as off, not "leave unchanged" - verified both ways |
+
+Note the two `timestamp`s are different fields. The body one is the envelope
+around the `groups` list and matters; the per-group one is dropped on arrival.
 
 Also note what the device does **not** echo. `set_groups` accepts a per-group
 `timestamp`, but the `groups` event carries a timestamp only at the body's top
@@ -828,6 +838,34 @@ without the removed device and without any `host` key, exactly as at creation,
 and let the survivors elect. Because publish_zones sends the complete list to
 every device, that is a single write. Both devices must be online, or the zone
 can end up owned by nobody.
+
+##### Do not "simplify" the written payload
+
+Every field above was added because members stayed silent without it, and none
+of it is obvious from reading the code. A `set_groups` write must therefore:
+
+- stamp the **body** with epoch seconds, and `0` when the last zone is cleared;
+- send `group_index: 1` on create, and otherwise keep the zone's existing value;
+- send `wb_enable`/`wb_device`/`wb_input` **only** while broadcasting;
+- never send `host`, and never send a per-group `timestamp`.
+
+`scripts/check_set_groups_payload.py` enforces all of it and runs in CI, so a
+regression fails the build rather than going silent in somebody's kitchen.
+
+Measured on five UPL-PORTs, the same three-speaker zone, with every zone
+deleted and the speakers confirmed empty between runs - they hold recent zone
+state, so back-to-back trials pass regardless of what is sent. Run on fw
+1.1.10 and repeated on 1.1.13 after the speakers auto-updated; identical
+results, so this is not firmware-specific:
+
+| Written by | Stored | Result |
+|---|---|---|
+| v1.4.0 as shipped | `timestamp: -1`, `group_index: 0` | host played, **both members silent** |
+| the same, with the fields above | real epoch, `group_index: 1` | all three rooms played |
+| v1.4.0 as shipped again | `timestamp: -1`, `group_index: 0` | silent again |
+
+The zone forms either way. Membership, `dev_count` and the entities all look
+correct in both cases - the only symptom is a quiet room.
 
 UNVERIFIED: re-election after the host is removed from a live zone has not been
 confirmed on hardware; only re-election at zone creation has.
@@ -900,6 +938,12 @@ Any device in the zone can broadcast one of its physical inputs to the rest.
   rather than a shared map.
 
 `""` for `wb_input` means no wired source: the zone is streaming.
+
+The app sends these three keys only while broadcasting, and so does this
+integration. An absent `wb_enable` reads as **off**, not "leave unchanged":
+switching a broadcasting zone back to streaming with all three omitted clears
+`wb_enable` on every speaker. `wb_device` and `wb_input` keep their old values
+and are inert while disabled, exactly as the app leaves them.
 
 ##### Two publishes, to two different devices
 

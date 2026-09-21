@@ -398,6 +398,76 @@ async def test_a_written_zone_never_asserts_the_host_flag(
         assert "host" not in member
 
 
+async def test_a_new_zone_is_created_with_group_index_1(
+    hass: HomeAssistant, setup_direct: MockConfigEntry, amp: FakeDevice
+) -> None:
+    """Every zone the Play app creates starts at 1, never 0."""
+    amp.clear()
+    _writer(hass, setup_direct).create(name="New", member_macs=[AMP_MAC, PORT_MAC])
+    assert _written_groups(amp)[0]["group_index"] == 1
+
+
+async def test_editing_a_zone_keeps_its_group_index(
+    hass: HomeAssistant,
+    synced_zone: MockConfigEntry,
+    amp: FakeDevice,
+    port: FakeDevice,
+    settle,
+) -> None:
+    """Only creation picks the index; every other write carries it through."""
+    body = groups_body(group_index=4)
+    amp.emit("groups", body)
+    port.emit("groups", body)
+    await settle(hass)
+    amp.clear()
+
+    _writer(hass, synced_zone).rename(ZONE_ID, "Ground Floor")
+
+    assert _written_groups(amp)[0]["group_index"] == 4
+
+
+async def test_a_written_zone_omits_the_wideband_keys_when_not_broadcasting(
+    hass: HomeAssistant, setup_direct: MockConfigEntry, amp: FakeDevice
+) -> None:
+    """The Play app only sends wb_enable/wb_device/wb_input while broadcasting.
+
+    An absent wb_enable reads as off on the speaker - verified on hardware by
+    returning a broadcasting zone to Streaming with the keys omitted.
+    """
+    amp.clear()
+    _writer(hass, setup_direct).create(name="New", member_macs=[AMP_MAC, PORT_MAC])
+    written = _written_groups(amp)[0]
+    assert not {"wb_enable", "wb_device", "wb_input"} & written.keys()
+
+
+async def test_every_zone_write_stamps_the_body(
+    hass: HomeAssistant, synced_zone: MockConfigEntry, amp: FakeDevice
+) -> None:
+    """The set_groups body carries a top-level timestamp, as the app sends.
+
+    Distinct from the per-group timestamp, which is never echoed back and
+    must stay out of each group dict.
+    """
+    amp.clear()
+    _writer(hass, synced_zone).rename(ZONE_ID, "Ground Floor")
+
+    body = amp.last_action("set_groups").body
+    assert isinstance(body["timestamp"], int)
+    assert body["timestamp"] > 0
+    assert "timestamp" not in body["groups"][0]
+
+
+async def test_clearing_the_last_zone_stamps_zero(
+    hass: HomeAssistant, synced_zone: MockConfigEntry, amp: FakeDevice
+) -> None:
+    """The app sends timestamp 0 with an empty zone list."""
+    amp.clear()
+    _writer(hass, synced_zone).delete(ZONE_ID)
+
+    body = amp.last_action("set_groups").body
+    assert body == {"timestamp": 0, "groups": []}
+
+
 async def test_removing_the_host_hands_the_role_over(
     hass: HomeAssistant,
     three_speakers: MockConfigEntry,
@@ -457,10 +527,11 @@ async def test_removing_the_broadcasting_speaker_returns_the_zone_to_streaming(
 
     _writer(hass, three_speakers).remove_member(ZONE_ID, PORT_MAC)
 
+    # Off is expressed by omitting the wideband keys, as the Play app does.
     written = _written_groups(amp)[0]
-    assert written["wb_enable"] is False
-    assert written["wb_device"] == ""
-    assert written["wb_input"] == ""
+    assert "wb_enable" not in written
+    assert "wb_device" not in written
+    assert "wb_input" not in written
 
 
 async def test_removing_a_non_broadcasting_speaker_keeps_the_source(
@@ -552,7 +623,7 @@ async def test_returning_to_streaming_hands_the_input_back(
 
     _writer(hass, synced_zone).clear_broadcast_source(ZONE_ID)
 
-    assert _written_groups(amp)[0]["wb_enable"] is False
+    assert "wb_enable" not in _written_groups(amp)[0]
     assert port.last_action("set_audio_src").body == {"source": "streaming"}
 
 

@@ -252,20 +252,23 @@ def group_payload(
     Kept next to gs_to_dict so a zone built here and a zone echoed back by a
     device serialise identically - the fan-out below mixes both in one list.
     """
-    return {
+    payload: dict[str, Any] = {
         "group_id": group_id,
         "name": name,
         "dev_info": strip_firmware_keys(dev_info),
         "dev_count": len(dev_info),
         "group_index": group_index,
         "broadcasting_mode": broadcasting_mode,
-        # The app omits these three when broadcasting is off, but "off" is an
-        # active command here (Set audio source -> Streaming), and whether the
-        # firmware reads an absent wb_enable as "off" or as "leave unchanged"
-        # is unverified. Keep sending them explicitly.
-        "wb_enable": wb_enable,
-        "wb_device": wb_device,
-        "wb_input": wb_input,
         # No per-group timestamp: set_groups accepts one but the groups event
         # never echoes it back, so it is write-only noise.
     }
+    # The Play app sends the wideband keys only while broadcasting is on.
+    # Verified on hardware that an absent wb_enable reads as "off", not "leave
+    # unchanged": switching a broadcasting zone back to Streaming with these
+    # omitted sets wb_enable false on every speaker. wb_device and wb_input
+    # keep their old values but are inert while disabled, as the app leaves them.
+    if wb_enable:
+        payload["wb_enable"] = True
+        payload["wb_device"] = wb_device
+        payload["wb_input"] = wb_input
+    return payload
