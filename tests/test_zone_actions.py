@@ -1185,6 +1185,63 @@ async def test_a_delayed_echo_of_an_earlier_write_is_not_an_app_edit(
     assert written["group_index"] == 7
 
 
+async def test_a_readback_of_retained_wideband_fields_is_not_an_app_edit(
+    hass: HomeAssistant,
+    synced_zone: MockConfigEntry,
+    amp: FakeDevice,
+    port: FakeDevice,
+    settle,
+) -> None:
+    """Turning a broadcast off leaves wb_device/wb_input set on the speaker.
+
+    The write omits all three keys rather than blanking the last two, so the
+    firmware keeps their old values and echoes them back with wb_enable
+    false. That readback is our own write coming home. Counting the leftovers
+    as a difference made it match neither the pending document nor the
+    outstanding write behind it, and the pending rename was dropped as if the
+    Play app had written last.
+    """
+    broadcasting = groups_body(wb_enable=True, wb_device=PORT_MAC, wb_input="spdif")
+    amp.emit("groups", broadcasting)
+    port.emit("groups", broadcasting)
+    await settle(hass)
+
+    writer = _writer(hass, synced_zone)
+    writer.clear_broadcast_source(ZONE_ID)
+    writer.rename(ZONE_ID, "Ground Floor")
+
+    # What the speakers actually store: wideband off, the source fields left
+    # at their last values.
+    retained = groups_body(wb_device=PORT_MAC, wb_input="spdif")
+    amp.emit("groups", retained)
+    port.emit("groups", retained)
+    await settle(hass)
+    amp.clear()
+
+    writer.set_index(ZONE_ID, 3)
+    assert _written_groups(amp)[0]["name"] == "Ground Floor"
+
+
+async def test_leftover_wideband_fields_are_not_a_zone_conflict(
+    hass: HomeAssistant,
+    synced_zone: MockConfigEntry,
+    amp: FakeDevice,
+    port: FakeDevice,
+    settle,
+) -> None:
+    """Two speakers that were broadcasting different things still agree.
+
+    The leftovers are per speaker - one that joined after a broadcast ended
+    never had them - and they are inert while wb_enable is false. Reporting
+    them as disagreement is a conflict that no edit can converge.
+    """
+    amp.emit("groups", groups_body(wb_device=PORT_MAC, wb_input="spdif"))
+    port.emit("groups", groups_body())
+    await settle(hass)
+
+    assert entry_coordinator(hass, synced_zone).zone_copy_counts()[ZONE_ID] == 1
+
+
 async def test_unconfirmed_write_history_is_deduplicated_and_bounded(
     hass: HomeAssistant, synced_zone: MockConfigEntry
 ) -> None:
